@@ -1,5 +1,6 @@
 import React from 'react';
 import { useForm } from 'react-hook-form';
+import { useAuth0 } from '@auth0/auth0-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,12 +20,16 @@ const HoneypotConfigForm = () => {
     reset,
   } = useForm();
 
+  const { getAccessTokenSilently } = useAuth0();
+
   const onSubmit = async (data: any) => {
     try {
+      const token = await getAccessTokenSilently();
       const response = await fetch('/api/honeypots', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(data),
       });

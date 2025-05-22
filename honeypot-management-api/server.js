@@ -4,6 +4,8 @@ const passport = require('./auth'); // Import your auth.js
 const { Pool } = require('pg');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const cors = require('cors');
+const { checkJwt } = require('./auth'); // Auth0 JWT middleware
 
 const app = express();
 const port = 3001;
@@ -30,6 +32,10 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
+app.use(cors({
+  origin: 'http://localhost:3000', // Frontend URL
+  credentials: true,
+}));
 
 // Add applyTerraform function here
 async function applyTerraform(config) {
@@ -127,10 +133,8 @@ app.get('/api/protected', (req, res) => {
 });
 
 // Honeypot API -  Placeholder.  Terraform integration is more involved.
-app.post('/api/honeypots', async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
+app.post('/api/honeypots', checkJwt, async (req, res) => {
+  const userId = req.auth.sub; // Auth0 user id
   const { region, instanceType, cowrieConfig, ami } = req.body;
   //  TODO:  1. Validate user input.
   //  TODO:  2.  Generate/Modify Terraform config (using a library or string templating).
@@ -140,6 +144,10 @@ app.post('/api/honeypots', async (req, res) => {
   try {
     const tfOutput = await applyTerraform({ region, instanceType, cowrieConfig, ami });
     // Optionally: Store tfOutput in DB here
+    await pool.query(
+      'INSERT INTO honeypots (user_id, region, instance_type, cowrie_config, outputs, status) VALUES ($1, $2, $3, $4, $5, $6)',
+      [userId, region, instanceType, cowrieConfig, JSON.stringify(tfOutput), 'active']
+    );
     res.json({ message: 'Honeypot deployment initiated', terraformOutput: tfOutput, user: req.user });
   } catch (err) {
     console.error(err);
@@ -147,23 +155,22 @@ app.post('/api/honeypots', async (req, res) => {
   }
 });
 
-app.get('/api/honeypots', (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-  // TODO: 1.  Fetch honeypot deployment status from the database.
-  res.json({ message: 'List of honeypots', user: req.user }); // Placeholder
+app.get('/api/honeypots', checkJwt, async (req, res) => {
+  const userId = req.auth.sub;
+  const result = await pool.query('SELECT * FROM honeypots WHERE user_id = $1', [userId]);
+  res.json(result.rows);
 });
 
-app.delete('/api/honeypots/:id', (req, res) => {
-  if (!req.isAuthenticated()) {
-     return res.status(401).json({ message: 'Unauthorized' });
-  }
+app.delete('/api/honeypots/:id', checkJwt, async (req, res) => {
+  const userId = req.auth.sub;
   const { id } = req.params;
-  // TODO: 1.  Validate user authorization to delete this honeypot.
-  // TODO: 2.  Execute Terraform destroy.
-  // TODO: 3.  Update database status.
-  res.json({ message: `Honeypot ${id} deletion initiated`, user: req.user }); // Placeholder
+  // Check ownership
+  const result = await pool.query('SELECT * FROM honeypots WHERE id = $1 AND user_id = $2', [id, userId]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  // Run Terraform destroy
+  // ...destroy logic...
+  await pool.query('UPDATE honeypots SET status = $1 WHERE id = $2', ['destroyed', id]);
+  res.json({ message: `Honeypot ${id} deletion initiated`, user: req.user });
 });
 
 //  Optional:  Endpoint for Kibana to trigger Terraform (more complex)
