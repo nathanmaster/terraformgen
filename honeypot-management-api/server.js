@@ -37,6 +37,16 @@ app.use(cors({
   credentials: true,
 }));
 
+// Helper: Upsert user by Auth0 user id (sub)
+async function ensureUserExists(auth0Sub) {
+  // Try to find user
+  const result = await pool.query('SELECT * FROM users WHERE auth0_sub = $1', [auth0Sub]);
+  if (result.rows.length === 0) {
+    // Insert new user
+    await pool.query('INSERT INTO users (auth0_sub) VALUES ($1)', [auth0Sub]);
+  }
+}
+
 // Add applyTerraform function here
 async function applyTerraform(config) {
   // 1.  Generate Terraform configuration (e.g., using a template)
@@ -94,24 +104,9 @@ async function applyTerraform(config) {
 
 // API Routes
 
-// Route for user signup (simplified - you'll need proper validation)
-app.post('/api/signup', async (req, res) => {
-  const { username, password } = req.body;
-  try {
-    //  **NEVER** store plain text passwords.  Use bcrypt to hash!
-    const result = await pool.query('INSERT INTO users (username, password) VALUES ($1, $2) RETURNING *', [username, password]);
-    const newUser = result.rows[0];
-    res.status(201).json(newUser);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create user' });
-  }
-});
-
-// Login route
-app.post('/api/login', passport.authenticate('local'), (req, res) => {
-  res.json({ message: 'Logged in successfully', user: req.user });
-});
+// Remove custom signup and login endpoints
+// app.post('/api/signup', ...);
+// app.post('/api/login', ...);
 
 // Logout route
 app.get('/api/logout', (req, res) => {
@@ -135,12 +130,9 @@ app.get('/api/protected', (req, res) => {
 // Honeypot API -  Placeholder.  Terraform integration is more involved.
 app.post('/api/honeypots', checkJwt, async (req, res) => {
   const userId = req.auth.sub; // Auth0 user id
+  // Ensure user exists in DB
+  await ensureUserExists(userId);
   const { region, instanceType, cowrieConfig, ami } = req.body;
-  //  TODO:  1. Validate user input.
-  //  TODO:  2.  Generate/Modify Terraform config (using a library or string templating).
-  //  TODO:  3.  Execute Terraform (using child_process.spawn in Node.js).
-  //  TODO:  4.  Store deployment info in the database.
-  //  TODO:  5.  Handle errors and return appropriate responses.
   try {
     const tfOutput = await applyTerraform({ region, instanceType, cowrieConfig, ami });
     // Optionally: Store tfOutput in DB here
@@ -157,12 +149,16 @@ app.post('/api/honeypots', checkJwt, async (req, res) => {
 
 app.get('/api/honeypots', checkJwt, async (req, res) => {
   const userId = req.auth.sub;
+  // Ensure user exists in DB
+  await ensureUserExists(userId);
   const result = await pool.query('SELECT * FROM honeypots WHERE user_id = $1', [userId]);
   res.json(result.rows);
 });
 
 app.delete('/api/honeypots/:id', checkJwt, async (req, res) => {
   const userId = req.auth.sub;
+  // Ensure user exists in DB
+  await ensureUserExists(userId);
   const { id } = req.params;
   // Check ownership
   const result = await pool.query('SELECT * FROM honeypots WHERE id = $1 AND user_id = $2', [id, userId]);

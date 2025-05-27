@@ -1,9 +1,10 @@
+require('dotenv').config();
 const expressJwt = require('express-jwt');
 const jwksRsa = require('jwks-rsa');
 
 // Auth0 configuration
 const authConfig = {
-  domain: process.env.AUTH0_DOMAIN || 'YOUR_AUTH0_DOMAIN',
+  domain: process.env.AUTH0_DOMAIN || 'YOUR_AUTH0_DOMAIN', // should be just the domain, no protocol
   audience: process.env.AUTH0_AUDIENCE || 'YOUR_AUTH0_API_AUDIENCE',
 };
 
